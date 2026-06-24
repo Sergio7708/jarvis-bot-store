@@ -1516,6 +1516,11 @@
             colorScheme: 'dark'
         };
 
+        const ADMIN_ID = 483610970;
+        const userId = (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user)
+            ? window.Telegram.WebApp.initDataUnsafe.user.id : null;
+        const isAdmin = (userId === ADMIN_ID);
+
         const BG = '#070912';
         try {
             WebApp.ready();
@@ -1747,7 +1752,14 @@
         }
 
         function getProductImage(product) {
-            return product.photo_url || product.photo || getProductArt(product);
+            const url = product.photo_url || product.photo || '';
+            if (url && (url.startsWith('http') || url.startsWith('data:'))) return url;
+            if (url && url.startsWith('/')) {
+                // Relative URL — добавляем базовый адрес сервера
+                const base = window.location.origin;
+                return base + url;
+            }
+            return getProductArt(product);
         }
 
         function getStars(rating) {
@@ -1785,19 +1797,37 @@
         }
 
         function loadProducts() {
-            fetch('products.json')
+            // 1. Пытаемся загрузить с API (если работает через serve_webapp.py)
+            const apiBase = window.location.origin;
+            fetch(apiBase + '/api/products')
                 .then(resp => {
-                    if (!resp.ok) throw new Error('No products.json');
+                    if (!resp.ok) throw new Error('No API');
                     return resp.json();
                 })
                 .then(data => {
-                    products = Array.isArray(data) && data.length ? data : getDemoProducts();
-                    initUI();
+                    if (Array.isArray(data) && data.length) {
+                        products = data;
+                        initUI();
+                        return;
+                    }
+                    throw new Error('Empty API');
                 })
                 .catch(() => {
-                    products = getDemoProducts();
-                    initUI();
-                    showToast('Демо-каталог');
+                    // 2. Fallback: статичный products.json (GitHub Pages)
+                    fetch('products.json')
+                        .then(resp => {
+                            if (!resp.ok) throw new Error('No products.json');
+                            return resp.json();
+                        })
+                        .then(data => {
+                            products = Array.isArray(data) && data.length ? data : getDemoProducts();
+                            initUI();
+                        })
+                        .catch(() => {
+                            products = getDemoProducts();
+                            initUI();
+                            showToast('Демо-каталог');
+                        });
                 });
         }
 
@@ -1934,9 +1964,9 @@
                             <img class="product-art" src="${getProductImage(p)}" alt="${escapeHtml(p.title || 'Модель')}">
                             <div class="media-badge">${escapeHtml(cat)}</div>
                             <div class="price-pill">${escapeHtml(formatRub(p.price))}</div>
-                            <button class="fav-btn ${isFav ? 'active' : ''}" onclick="event.stopPropagation(); toggleFav(${p.id})" aria-label="Избранное">
+                            ${isAdmin ? `<button class="fav-btn ${isFav ? 'active' : ''}" onclick="event.stopPropagation(); toggleFav(${p.id})" aria-label="Избранное">
                                 ${ICONS.heart}
-                            </button>
+                            </button>` : ''}
                         </div>
                         <div class="product-body">
                             <h3 class="product-title">${escapeHtml(p.title || 'Без названия')}</h3>
@@ -1946,9 +1976,9 @@
                                     ${ICONS.star}
                                     <span>${getRating(p).toFixed(1)}</span>
                                 </div>
-                                <button class="add-btn ${inCart ? 'in-cart' : ''}" onclick="event.stopPropagation(); addToCart(${p.id})" aria-label="В корзину">
+                                ${isAdmin ? `<button class="add-btn ${inCart ? 'in-cart' : ''}" onclick="event.stopPropagation(); addToCart(${p.id})" aria-label="В корзину">
                                     ${inCart ? ICONS.check : ICONS.plus}
-                                </button>
+                                </button>` : ''}
                             </div>
                         </div>
                     </article>
@@ -1987,8 +2017,13 @@
                         <div class="spec"><span>Опции</span><strong>Под покраску и сборку</strong></div>
                     </div>
                     <div class="detail-actions">
+                        ${isAdmin ? `
                         <button class="primary-btn" onclick="addToCart(${p.id}); closeDetail();">${inCart ? 'В корзине' : 'В корзину'}</button>
-                        <button class="secondary-btn" onclick="toggleFav(${p.id});">${isFav ? 'Удалить из избранного' : 'В избранное'}</button>
+                        <button class="secondary-btn" onclick="deleteProduct(${p.id});">🗑 Удалить</button>
+                        <button class="secondary-btn" onclick="editProduct(${p.id});">✏️ Редактировать</button>
+                        ` : `
+                        <button class="primary-btn" onclick="orderProduct(${p.id});">Заказать</button>
+                        `}
                     </div>
                 </div>
             `;
@@ -2257,6 +2292,24 @@
         updateFavButtonState();
         updateCounters();
         loadProducts();
+
+        function deleteProduct(id) {
+            if (!confirm('Удалить этот товар?')) return;
+            fetch(`/api/product/${id}`, { method: 'DELETE' })
+                .then(r => { if (r.ok) { showToast('Товар удалён'); loadProducts(); closeDetail(); } else showToast('Ошибка удаления'); })
+                .catch(() => showToast('Ошибка сети'));
+        }
+
+        function editProduct(id) {
+            // Открыть бот с админ-командой
+            const botUsername = 'Jarvisvetogorbot';
+            window.open(`https://t.me/${botUsername}?start=edit_${id}`, '_blank');
+        }
+
+        function orderProduct(id) {
+            const botUsername = 'Jarvisvetogorbot';
+            window.open(`https://t.me/${botUsername}?start=order_${id}`, '_blank');
+        }
     </script>
 </body>
 </html>
