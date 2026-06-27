@@ -1542,6 +1542,10 @@
             WebApp.expand();
             WebApp.setBackgroundColor?.(BG);
             WebApp.setHeaderColor?.(BG);
+            WebApp.onEvent?.('themeChanged', () => {
+                WebApp.setBackgroundColor?.(BG);
+                WebApp.setHeaderColor?.(BG);
+            });
         } catch (e) {}
 
         const ICONS = {
@@ -1590,8 +1594,8 @@
         };
 
         let products = [];
-        let cart = JSON.parse(localStorage.getItem('miniapp_cart') || '{}');
-        let favorites = JSON.parse(localStorage.getItem('miniapp_favs') || '[]');
+        let cart = (() => { try { return JSON.parse(localStorage.getItem('miniapp_cart') || '{}'); } catch { return {}; } })();
+        let favorites = (() => { try { return JSON.parse(localStorage.getItem('miniapp_favs') || '[]'); } catch { return []; } })();
         let currentCategory = 'all';
         let favOnly = false;
         let sortMode = 'popular';
@@ -1783,15 +1787,7 @@
         }
 
         function getStars(rating) {
-            const full = Math.floor(rating);
-            const half = rating - full >= 0.5;
-            let html = '';
-            for (let i = 0; i < 5; i++) {
-                if (i < full) html += ICONS.star;
-                else if (i === full && half) html += `<span style="position:relative;display:inline-flex;overflow:hidden;width:14px;">${ICONS.star}</span>`;
-                else html += `<span style="width:14px;height:14px;display:inline-block;opacity:.18">${ICONS.star}</span>`;
-            }
-            return html;
+            return buildStarsMarkup(rating);
         }
 
         function debounce(fn, ms) {
@@ -1998,12 +1994,12 @@
                 return `
                     <article class="product-card ${index === 0 ? 'featured' : ''}" onclick="openDetail(${p.id})" style="animation-delay:${(index % 8) * 0.025}s">
                         <div class="product-media">
-                            <img class="product-art" src="${getProductImage(p)}" alt="${escapeHtml(p.title || 'Модель')}">
+                            <img class="product-art" src="${getProductImage(p)}" alt="${escapeHtml(p.title || 'Модель')}" loading="lazy">
                             <div class="media-badge">${escapeHtml(cat)}</div>
                             <div class="price-pill">${escapeHtml(formatRub(p.price))}</div>
-                            ${isAdmin ? `<button class="fav-btn ${isFav ? 'active' : ''}" onclick="event.stopPropagation(); toggleFav(${p.id})" aria-label="Избранное">
+                            <button class="fav-btn ${isFav ? 'active' : ''}" onclick="event.stopPropagation(); toggleFav(${p.id})" aria-label="Избранное">
                                 ${ICONS.heart}
-                            </button>` : ''}
+                            </button>
                         </div>
                         <div class="product-body">
                             <h3 class="product-title">${escapeHtml(p.title || 'Без названия')}</h3>
@@ -2013,14 +2009,29 @@
                                     ${ICONS.star}
                                     <span>${getRating(p).toFixed(1)}</span>
                                 </div>
-                                ${isAdmin ? `<button class="add-btn ${inCart ? 'in-cart' : ''}" onclick="event.stopPropagation(); addToCart(${p.id})" aria-label="В корзину">
+                                <button class="add-btn ${inCart ? 'in-cart' : ''}" onclick="event.stopPropagation(); addToCart(${p.id})" aria-label="В корзину">
                                     ${inCart ? ICONS.check : ICONS.plus}
-                                </button>` : ''}
+                                </button>
                             </div>
                         </div>
                     </article>
                 `;
             }).join('');
+        }
+
+        function tgHaptic() {
+            try { WebApp.HapticFeedback?.impactOccurred?.('medium'); } catch (e) {}
+        }
+
+        function tgBack(show, onHide) {
+            try {
+                if (show) {
+                    WebApp.BackButton?.show();
+                    WebApp.BackButton?.onClick(onHide);
+                } else {
+                    WebApp.BackButton?.hide();
+                }
+            } catch (e) {}
         }
 
         function openDetail(id) {
@@ -2035,7 +2046,7 @@
             el('detailContent').innerHTML = `
                 <div class="detail-layout">
                     <div class="detail-art">
-                        <img src="${getProductImage(p)}" alt="${escapeHtml(p.title || 'Модель')}">
+                        <img src="${getProductImage(p)}" alt="${escapeHtml(p.title || 'Модель')}" loading="lazy">
                     </div>
                     <div class="detail-cat">${escapeHtml(cat)}</div>
                     <div>
@@ -2054,27 +2065,30 @@
                         <div class="spec"><span>Опции</span><strong>Под покраску и сборку</strong></div>
                     </div>
                     <div class="detail-actions">
-                        ${isAdmin ? `
                         <button class="primary-btn" onclick="addToCart(${p.id}); closeDetail();">${inCart ? 'В корзине' : 'В корзину'}</button>
+                        ${isAdmin ? `
                         <button class="secondary-btn" onclick="deleteProduct(${p.id});">🗑 Удалить</button>
                         <button class="secondary-btn" onclick="editProduct(${p.id});">✏️ Редактировать</button>
                         ` : `
-                        <button class="primary-btn" onclick="orderProduct(${p.id});">Заказать</button>
+                        <button class="secondary-btn" onclick="orderProduct(${p.id});">🔗 Заказать в боте</button>
                         `}
                     </div>
                 </div>
             `;
             el('detailOverlay').classList.add('open');
             el('detailSheet').classList.add('open');
+            tgBack(true, closeDetail);
         }
 
         function closeDetail() {
             currentDetailId = null;
             el('detailOverlay').classList.remove('open');
             el('detailSheet').classList.remove('open');
+            tgBack(false);
         }
 
         function addToCart(id) {
+            tgHaptic();
             cart[id] = (cart[id] || 0) + 1;
             saveCart();
             showToast('Добавлено в корзину');
@@ -2107,11 +2121,13 @@
             renderCart();
             el('cartOverlay').classList.add('open');
             el('cartSheet').classList.add('open');
+            tgBack(true, closeCart);
         }
 
         function closeCart() {
             el('cartOverlay').classList.remove('open');
             el('cartSheet').classList.remove('open');
+            tgBack(false);
         }
 
         function renderCart() {
@@ -2140,7 +2156,7 @@
                 subtotal += num(p.price) * qty;
                 return `
                     <div class="cart-item">
-                        <div class="cart-thumb"><img src="${getProductImage(p)}" alt="${escapeHtml(p.title || 'Модель')}"></div>
+                        <div class="cart-thumb"><img src="${getProductImage(p)}" alt="${escapeHtml(p.title || 'Модель')}" loading="lazy"></div>
                         <div>
                             <h4 class="cart-item-title">${escapeHtml(p.title || 'Без названия')}</h4>
                             <div class="cart-item-price">${escapeHtml(formatRub(p.price))} × ${qty} = ${escapeHtml(formatRub(num(p.price) * qty))}</div>
@@ -2176,6 +2192,7 @@
         }
 
         function openOrder() {
+            tgHaptic();
             closeCart();
             const ids = Object.keys(cart);
             if (!ids.length) return;
@@ -2198,14 +2215,17 @@
 
             el('orderOverlay').classList.add('open');
             el('orderSheet').classList.add('open');
+            tgBack(true, closeOrder);
         }
 
         function closeOrder() {
             el('orderOverlay').classList.remove('open');
             el('orderSheet').classList.remove('open');
+            tgBack(false);
         }
 
         function toggleFav(id) {
+            tgHaptic();
             const idx = favorites.indexOf(id);
             if (idx === -1) {
                 favorites.push(id);
@@ -2271,8 +2291,6 @@
             return out;
         }
 
-        function getStars(rating) { return buildStarsMarkup(rating); }
-
         el('submitOrderBtn').addEventListener('click', () => {
             const name = el('inputName').value.trim();
             const phone = el('inputPhone').value.trim();
@@ -2331,10 +2349,9 @@
         loadProducts();
 
         function deleteProduct(id) {
+            if (!isAdmin) return showToast('Только администратор');
             if (!confirm('Удалить этот товар?')) return;
-            fetch(`/api/product/${id}`, { method: 'DELETE' })
-                .then(r => { if (r.ok) { showToast('Товар удалён'); loadProducts(); closeDetail(); } else showToast('Ошибка удаления'); })
-                .catch(() => showToast('Ошибка сети'));
+            showToast('Удаление доступно только через бота');
         }
 
         function editProduct(id) {
