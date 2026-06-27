@@ -253,6 +253,15 @@
             padding-left: 44px;
             padding-right: 16px;
         }
+        .sort-select option { background: #131a2b; color: var(--text); }
+
+        .price-filter { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+        .price-input { width: 68px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: rgba(255,255,255,0.045); color: var(--text); font-size: 13px; text-align: center; outline: none; transition: border-color .2s; }
+        .price-input:focus { border-color: rgba(216,177,90,0.45); }
+        .price-input::placeholder { color: rgba(225,232,255,0.35); }
+        .price-sep { color: rgba(255,255,255,0.25); font-size: 13px; }
+        .price-clear { background: none; border: none; color: rgba(255,255,255,0.3); font-size: 18px; cursor: pointer; padding: 0 4px; line-height: 1; }
+        .price-clear:hover { color: var(--text); }
 
         .hero {
             margin-top: 14px;
@@ -1323,6 +1332,12 @@
                         <option value="title">По названию</option>
                     </select>
                 </div>
+                <div class="price-filter">
+                    <input class="price-input" id="priceMin" type="number" min="0" placeholder="От" autocomplete="off">
+                    <span class="price-sep">—</span>
+                    <input class="price-input" id="priceMax" type="number" min="0" placeholder="До" autocomplete="off">
+                    <button class="price-clear" id="priceClear" title="Сбросить">×</button>
+                </div>
             </div>
         </header>
 
@@ -1580,6 +1595,8 @@
         let currentCategory = 'all';
         let favOnly = false;
         let sortMode = 'popular';
+        let priceMin = 0;
+        let priceMax = 0;
         let currentDetailId = null;
         const artCache = new Map();
 
@@ -1755,11 +1772,14 @@
             const url = product.photo_url || product.photo || '';
             if (url && (url.startsWith('http') || url.startsWith('data:'))) return url;
             if (url && url.startsWith('/')) {
-                // Relative URL — добавляем базовый адрес сервера
-                const base = window.location.origin;
+                // Relative URL — корректно резолвим относительно страницы
+                const base = window.location.origin + window.location.pathname.replace(/\/[^/]*$/, '');
                 return base + url;
             }
-            return getProductArt(product);
+            // Если есть фото в папке product_photos — показываем его
+            const localUrl = `/product_photos/${product.id}.jpg`;
+            const base = window.location.origin + window.location.pathname.replace(/\/[^/]*$/, '');
+            return base + localUrl;
         }
 
         function getStars(rating) {
@@ -1845,6 +1865,21 @@
                 sortMode = e.target.value;
                 renderProducts();
             });
+            el('priceMin').addEventListener('input', debounce(() => {
+                priceMin = Number(el('priceMin').value) || 0;
+                renderProducts();
+            }, 200));
+            el('priceMax').addEventListener('input', debounce(() => {
+                priceMax = Number(el('priceMax').value) || 0;
+                renderProducts();
+            }, 200));
+            el('priceClear').addEventListener('click', () => {
+                el('priceMin').value = '';
+                el('priceMax').value = '';
+                priceMin = 0;
+                priceMax = 0;
+                renderProducts();
+            });
         }
 
         function renderCategories() {
@@ -1875,6 +1910,8 @@
                 list = list.filter(p => categoryName(p.category) === currentCategory);
             }
             if (favOnly) list = list.filter(p => favorites.includes(p.id));
+            if (priceMin > 0) list = list.filter(p => num(p.price) >= priceMin);
+            if (priceMax > 0) list = list.filter(p => num(p.price) <= priceMax);
             if (query) {
                 list = list.filter(p => {
                     const hay = `${p.title || ''} ${p.desc || ''} ${p.category || ''}`.toLowerCase();
